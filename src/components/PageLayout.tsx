@@ -1,4 +1,5 @@
 import { BackButton } from './BackButton';
+import { BackToTopButton } from './BackToTopButton';
 import MobileBottomNav from './MobileBottomNav';
 import MobileHeader from './MobileHeader';
 import Sidebar from './Sidebar';
@@ -11,6 +12,8 @@ interface PageLayoutProps {
 }
 
 const PageLayout = ({ children, activePath = '/' }: PageLayoutProps) => {
+  const hideGlobalBackToTop = ['/play', '/search'].includes(activePath);
+
   return (
     <div className='w-full min-h-screen'>
       {/* 移动端头部 */}
@@ -47,6 +50,9 @@ const PageLayout = ({ children, activePath = '/' }: PageLayoutProps) => {
           >
             {children}
           </main>
+
+          {/* 搜索页已有独立返回顶部按钮，播放页不显示 */}
+          <BackToTopButton hidden={hideGlobalBackToTop} />
         </div>
       </div>
 

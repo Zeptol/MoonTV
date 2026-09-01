@@ -22,30 +22,17 @@ type SearchCategory = 'all' | 'movie' | 'tv' | 'show' | 'anime';
 type ClassifiedSearchCategory = Exclude<SearchCategory, 'all'>;
 type SearchViewMode = 'agg' | 'all';
 
-interface CachedSearchItem {
-  id: string;
-  title: string;
-  poster: string;
-  source: string;
-  source_name: string;
-  class?: string;
-  year: string;
-  type_name?: string;
-  douban_id?: number;
-  rate?: string;
-  episodeCount: number;
-}
-
 interface CachedSearchState {
   query: string;
-  results: CachedSearchItem[];
+  results: SearchResult[];
   selectedCategory: SearchCategory;
   viewMode: SearchViewMode;
-  savedAt: number;
 }
 
-const SEARCH_STATE_KEY = 'moontv:last-search-state:v2';
-const SEARCH_STATE_MAX_AGE = 12 * 60 * 60 * 1000;
+// 只保存在当前页面 JS 运行时内存中：
+// - 左侧标签 SPA 切换时保留
+// - 浏览器刷新 / 重新打开后自动清空
+const SEARCH_RUNTIME_KEY = '__moontvLastSearchStateV3';
 
 const SEARCH_CATEGORY_OPTIONS: Array<{
   key: SearchCategory;
@@ -66,6 +53,48 @@ function getDefaultAggregate(): boolean {
     }
   }
   return true;
+}
+
+function readCachedSearchState(): CachedSearchState | null {
+  if (typeof window === 'undefined') return null;
+
+  const cached = (window as any)[SEARCH_RUNTIME_KEY] as
+    | CachedSearchState
+    | undefined;
+
+  if (!cached?.query || !Array.isArray(cached.results)) return null;
+
+  return {
+    query: cached.query,
+    results: cached.results,
+    selectedCategory: SEARCH_CATEGORY_OPTIONS.some(
+      (option) => option.key === cached.selectedCategory
+    )
+      ? cached.selectedCategory
+      : 'all',
+    viewMode: cached.viewMode === 'all' ? 'all' : 'agg',
+  };
+}
+
+function saveCachedSearchState(
+  query: string,
+  results: SearchResult[],
+  selectedCategory: SearchCategory,
+  viewMode: SearchViewMode
+) {
+  if (typeof window === 'undefined' || !query.trim()) return;
+
+  (window as any)[SEARCH_RUNTIME_KEY] = {
+    query: query.trim(),
+    results,
+    selectedCategory,
+    viewMode,
+  } satisfies CachedSearchState;
+}
+
+function clearCachedSearchState() {
+  if (typeof window === 'undefined') return;
+  delete (window as any)[SEARCH_RUNTIME_KEY];
 }
 
 function classifySearchResult(item: SearchResult): ClassifiedSearchCategory {
@@ -119,92 +148,6 @@ function sortSearchResults(results: SearchResult[], query: string) {
   });
 }
 
-function toCachedSearchItems(results: SearchResult[]): CachedSearchItem[] {
-  return results.map((item) => ({
-    id: item.id,
-    title: item.title,
-    poster: item.poster,
-    source: item.source,
-    source_name: item.source_name,
-    class: item.class,
-    year: item.year,
-    type_name: item.type_name,
-    douban_id: item.douban_id,
-    rate: item.rate,
-    episodeCount: item.episodes?.length || 0,
-  }));
-}
-
-function fromCachedSearchItems(items: CachedSearchItem[]): SearchResult[] {
-  return items.map((item) => ({
-    id: item.id,
-    title: item.title,
-    poster: item.poster,
-    source: item.source,
-    source_name: item.source_name,
-    class: item.class,
-    year: item.year,
-    type_name: item.type_name,
-    douban_id: item.douban_id,
-    rate: item.rate,
-    episodes: new Array(Math.max(0, item.episodeCount || 0)).fill(''),
-  }));
-}
-
-function readCachedSearchState(): (Omit<CachedSearchState, 'results'> & {
-  results: SearchResult[];
-}) | null {
-  if (typeof window === 'undefined') return null;
-
-  try {
-    const raw = sessionStorage.getItem(SEARCH_STATE_KEY);
-    if (!raw) return null;
-
-    const parsed = JSON.parse(raw) as CachedSearchState;
-    if (!parsed.query || !Array.isArray(parsed.results)) return null;
-
-    if (Date.now() - parsed.savedAt > SEARCH_STATE_MAX_AGE) {
-      sessionStorage.removeItem(SEARCH_STATE_KEY);
-      return null;
-    }
-
-    return {
-      ...parsed,
-      selectedCategory: SEARCH_CATEGORY_OPTIONS.some(
-        (option) => option.key === parsed.selectedCategory
-      )
-        ? parsed.selectedCategory
-        : 'all',
-      viewMode: parsed.viewMode === 'all' ? 'all' : 'agg',
-      results: fromCachedSearchItems(parsed.results),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function saveCachedSearchState(
-  query: string,
-  results: SearchResult[],
-  selectedCategory: SearchCategory,
-  viewMode: SearchViewMode
-) {
-  if (typeof window === 'undefined' || !query.trim()) return;
-
-  try {
-    const state: CachedSearchState = {
-      query: query.trim(),
-      results: toCachedSearchItems(results),
-      selectedCategory,
-      viewMode,
-      savedAt: Date.now(),
-    };
-    sessionStorage.setItem(SEARCH_STATE_KEY, JSON.stringify(state));
-  } catch {
-    // sessionStorage 空间不足时不影响正常搜索。
-  }
-}
-
 async function enrichWithDoubanRatings(
   results: SearchResult[]
 ): Promise<SearchResult[]> {
@@ -240,7 +183,7 @@ async function enrichWithDoubanRatings(
     const id = item.douban_id ? String(item.douban_id) : '';
     return {
       ...item,
-      // 搜索卡片只显示豆瓣真实评分；获取不到时宁可不显示，也不使用资源站内部评分。
+      // 只显示豆瓣真实评分，获取不到则不显示。
       rate: id && ratings[id] ? ratings[id] : '',
     };
   });
@@ -262,6 +205,7 @@ function SearchPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeSearchRef = useRef('');
+  const initialNavigationHandledRef = useRef(false);
 
   const categoryCounts = useMemo(() => {
     const counts: Record<SearchCategory, number> = {
@@ -319,9 +263,7 @@ function SearchPageClient() {
     });
   }, [filteredSearchResults, searchQuery]);
 
-  const restoreCachedState = (
-    cached: Omit<CachedSearchState, 'results'> & { results: SearchResult[] }
-  ) => {
+  const restoreCachedState = (cached: CachedSearchState) => {
     activeSearchRef.current = cached.query;
     setSearchQuery(cached.query);
     setSearchResults(cached.results);
@@ -360,7 +302,7 @@ function SearchPageClient() {
         });
       }
 
-      // 资源站的 vod_score 不是豆瓣评分，先清空，随后用 douban_id 获取真实豆瓣评分。
+      // 资源站自己的 vod_score 不是豆瓣评分。
       const sortedResults = sortSearchResults(
         results.map((item) => ({ ...item, rate: '' })),
         normalizedQuery
@@ -386,6 +328,38 @@ function SearchPageClient() {
         setIsLoading(false);
       }
     }
+  };
+
+  const startSearch = (query: string) => {
+    const trimmed = query.trim().replace(/\s+/g, ' ');
+    if (!trimmed) return;
+
+    clearCachedSearchState();
+    activeSearchRef.current = trimmed;
+    setSearchQuery(trimmed);
+    setSearchResults([]);
+    setSelectedCategory('all');
+    setShowResults(true);
+    addSearchHistory(trimmed);
+    void fetchSearchResults(trimmed);
+  };
+
+  const clearCurrentSearch = () => {
+    clearCachedSearchState();
+    activeSearchRef.current = '';
+    setSearchQuery('');
+    setSearchResults([]);
+    setSelectedCategory('all');
+    setShowResults(false);
+    setIsLoading(false);
+
+    if ((searchParams.get('q') || '').trim()) {
+      router.replace('/search', { scroll: false });
+    }
+
+    requestAnimationFrame(() => {
+      document.getElementById('searchInput')?.focus();
+    });
   };
 
   useEffect(() => {
@@ -419,28 +393,62 @@ function SearchPageClient() {
 
   useEffect(() => {
     const query = (searchParams.get('q') || '').trim();
+
+    // 如果当前文档就是在搜索页执行的“刷新”，明确清空搜索结果。
+    // PerformanceNavigationTiming.name 是本次文档最初加载的 URL，
+    // 所以从别的页面刷新后再通过左侧标签进入搜索页不会误判。
+    if (!initialNavigationHandledRef.current && typeof window !== 'undefined') {
+      initialNavigationHandledRef.current = true;
+      const navEntry = performance.getEntriesByType(
+        'navigation'
+      )[0] as PerformanceNavigationTiming | undefined;
+
+      let initialPath = '';
+      try {
+        initialPath = navEntry?.name ? new URL(navEntry.name).pathname : '';
+      } catch {
+        initialPath = '';
+      }
+
+      if (navEntry?.type === 'reload' && initialPath === '/search') {
+        clearCachedSearchState();
+        activeSearchRef.current = '';
+        setSearchQuery('');
+        setSearchResults([]);
+        setSelectedCategory('all');
+        setShowResults(false);
+        setIsLoading(false);
+
+        if (query) {
+          router.replace('/search', { scroll: false });
+        }
+
+        requestAnimationFrame(() => {
+          document.getElementById('searchInput')?.focus();
+        });
+        return;
+      }
+    }
+
     const cached = readCachedSearchState();
 
+    // 兼容外部直接打开 /search?q=xxx 的链接。
     if (query) {
       setSearchQuery(query);
+      setSelectedCategory('all');
       addSearchHistory(query);
-
-      if (cached && cached.query === query) {
-        restoreCachedState(cached);
-        // 先显示上次结果，再静默刷新数据和豆瓣评分。
-        void fetchSearchResults(query, { silent: true });
-      } else {
-        setSelectedCategory('all');
-        void fetchSearchResults(query);
-      }
+      void fetchSearchResults(query);
       return;
     }
 
-    // 从其他页面重新进入 /search 时恢复刚才的搜索结果，而不是回到空白搜索页。
+    // 普通的左侧标签 SPA 切换回来，恢复当前搜索。
     if (cached) {
       restoreCachedState(cached);
+      // 后台静默刷新一次，确保评分和资源状态是新的。
+      void fetchSearchResults(cached.query, { silent: true });
     } else {
       activeSearchRef.current = '';
+      setSearchQuery('');
       setShowResults(false);
       setSearchResults([]);
       document.getElementById('searchInput')?.focus();
@@ -459,19 +467,7 @@ function SearchPageClient() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmed = searchQuery.trim().replace(/\s+/g, ' ');
-    if (!trimmed) return;
-
-    setSearchQuery(trimmed);
-    setSelectedCategory('all');
-    setShowResults(true);
-    addSearchHistory(trimmed);
-
-    if ((searchParams.get('q') || '').trim() === trimmed) {
-      void fetchSearchResults(trimmed);
-    } else {
-      router.push(`/search?q=${encodeURIComponent(trimmed)}`);
-    }
+    startSearch(searchQuery);
   };
 
   const scrollToTop = () => {
@@ -535,14 +531,24 @@ function SearchPageClient() {
                 })}
               </div>
 
-              <div className='mb-8 flex items-center justify-between'>
-                <h2 className='text-xl font-bold text-gray-800 dark:text-gray-200'>
-                  搜索结果
-                  <span className='ml-2 text-sm font-normal text-gray-400'>
-                    {filteredSearchResults.length}
-                  </span>
-                </h2>
-                <label className='flex items-center gap-2 cursor-pointer select-none'>
+              <div className='mb-8 flex items-center justify-between gap-4'>
+                <div className='flex items-center gap-3 min-w-0'>
+                  <h2 className='text-xl font-bold text-gray-800 dark:text-gray-200 whitespace-nowrap'>
+                    搜索结果
+                    <span className='ml-2 text-sm font-normal text-gray-400'>
+                      {filteredSearchResults.length}
+                    </span>
+                  </h2>
+                  <button
+                    type='button'
+                    onClick={clearCurrentSearch}
+                    className='text-sm text-gray-500 hover:text-red-500 transition-colors dark:text-gray-400 dark:hover:text-red-400 whitespace-nowrap'
+                  >
+                    清空
+                  </button>
+                </div>
+
+                <label className='flex items-center gap-2 cursor-pointer select-none shrink-0'>
                   <span className='text-sm text-gray-700 dark:text-gray-300'>
                     聚合
                   </span>
@@ -630,12 +636,7 @@ function SearchPageClient() {
                 {searchHistory.map((item) => (
                   <div key={item} className='relative group'>
                     <button
-                      onClick={() => {
-                        setSearchQuery(item);
-                        router.push(
-                          `/search?q=${encodeURIComponent(item.trim())}`
-                        );
-                      }}
+                      onClick={() => startSearch(item)}
                       className='px-4 py-2 bg-gray-500/10 hover:bg-gray-300 rounded-full text-sm text-gray-700 transition-colors duration-200 dark:bg-gray-700/50 dark:hover:bg-gray-600 dark:text-gray-300'
                     >
                       {item}

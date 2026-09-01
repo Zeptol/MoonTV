@@ -135,9 +135,10 @@ function shouldSkipAuth(pathname: string): boolean {
   return skipPaths.some((path) => pathname.startsWith(path));
 }
 
-// 配置middleware匹配规则
+// 配置 middleware 匹配规则。
+// PWA 资源不仅在函数中跳过，这里也彻底排除，避免安装器拿到登录重定向。
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|login|warning|api/login|api/register|api/logout|api/cron|api/server-config).*)',
+    '/((?!_next/static|_next/image|favicon.ico|robots.txt|manifest.json|sw.js|workbox-|worker-|fallback-|icons/|logo.png|screenshot|login|warning|api/login|api/register|api/logout|api/cron|api/server-config).*)',
   ],
 };

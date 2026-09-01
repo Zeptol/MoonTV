@@ -4,7 +4,7 @@
 
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getDoubanCategories, getDoubanList } from '@/lib/douban.client';
 import { DoubanItem, DoubanResult } from '@/lib/types';
@@ -15,6 +15,70 @@ import DoubanSelector from '@/components/DoubanSelector';
 import PageLayout from '@/components/PageLayout';
 import VideoCard from '@/components/VideoCard';
 
+type DoubanSortMode = 'default' | 'rating' | 'yearDesc' | 'yearAsc';
+
+const DOUBAN_SORT_OPTIONS: Array<{
+  key: DoubanSortMode;
+  label: string;
+  title: string;
+}> = [
+  { key: 'default', label: '综合', title: '保持豆瓣默认排序' },
+  { key: 'rating', label: '评分', title: '按豆瓣评分从高到低排序' },
+  { key: 'yearDesc', label: '最新', title: '按上映年份从新到旧排序' },
+  { key: 'yearAsc', label: '最早', title: '按上映年份从旧到新排序' },
+];
+
+function getYearValue(year?: string): number | null {
+  if (!year) return null;
+  const parsed = Number.parseInt(year, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getRatingValue(rate?: string): number | null {
+  if (!rate) return null;
+  const parsed = Number.parseFloat(rate);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function sortDoubanItems(items: DoubanItem[], sortMode: DoubanSortMode) {
+  if (sortMode === 'default') return items;
+
+  return [...items].sort((a, b) => {
+    const aRating = getRatingValue(a.rate);
+    const bRating = getRatingValue(b.rate);
+    const aYear = getYearValue(a.year);
+    const bYear = getYearValue(b.year);
+
+    if (sortMode === 'rating') {
+      if (aRating === null && bRating !== null) return 1;
+      if (aRating !== null && bRating === null) return -1;
+      if (aRating !== null && bRating !== null && aRating !== bRating) {
+        return bRating - aRating;
+      }
+
+      if (aYear === null && bYear !== null) return 1;
+      if (aYear !== null && bYear === null) return -1;
+      if (aYear !== null && bYear !== null && aYear !== bYear) {
+        return bYear - aYear;
+      }
+
+      return a.title.localeCompare(b.title);
+    }
+
+    if (aYear === null && bYear !== null) return 1;
+    if (aYear !== null && bYear === null) return -1;
+    if (aYear !== null && bYear !== null && aYear !== bYear) {
+      return sortMode === 'yearAsc' ? aYear - bYear : bYear - aYear;
+    }
+
+    const safeARating = aRating || 0;
+    const safeBRating = bRating || 0;
+    if (safeARating !== safeBRating) return safeBRating - safeARating;
+
+    return a.title.localeCompare(b.title);
+  });
+}
+
 function DoubanPageClient() {
   const searchParams = useSearchParams();
   const [doubanData, setDoubanData] = useState<DoubanItem[]>([]);
@@ -23,6 +87,7 @@ function DoubanPageClient() {
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [selectorsReady, setSelectorsReady] = useState(false);
+  const [sortMode, setSortMode] = useState<DoubanSortMode>('default');
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadingRef = useRef<HTMLDivElement>(null);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -55,38 +120,35 @@ function DoubanPageClient() {
 
   // 初始化时标记选择器为准备好状态
   useEffect(() => {
-    // 短暂延迟确保初始状态设置完成
     const timer = setTimeout(() => {
       setSelectorsReady(true);
     }, 50);
 
     return () => clearTimeout(timer);
-  }, []); // 只在组件挂载时执行一次
+  }, []);
 
   // type变化时立即重置selectorsReady（最高优先级）
   useEffect(() => {
     setSelectorsReady(false);
-    setLoading(true); // 立即显示loading状态
+    setLoading(true);
+    setSortMode('default');
   }, [type]);
 
   // 当type变化时重置选择器状态
   useEffect(() => {
     if (type === 'custom' && customCategories.length > 0) {
-      // 自定义分类模式：优先选择 movie，如果没有 movie 则选择 tv
       const types = Array.from(
         new Set(customCategories.map((cat) => cat.type))
       );
       if (types.length > 0) {
-        // 优先选择 movie，如果没有 movie 则选择 tv
-        let selectedType = types[0]; // 默认选择第一个
+        let selectedType = types[0];
         if (types.includes('movie')) {
           selectedType = 'movie';
-        } else {
+        } else if (types.includes('tv')) {
           selectedType = 'tv';
         }
         setPrimarySelection(selectedType);
 
-        // 设置选中类型的第一个分类的 query 作为二级选择
         const firstCategory = customCategories.find(
           (cat) => cat.type === selectedType
         );
@@ -95,7 +157,6 @@ function DoubanPageClient() {
         }
       }
     } else {
-      // 原有逻辑
       if (type === 'movie') {
         setPrimarySelection('热门');
         setSecondarySelection('全部');
@@ -111,7 +172,6 @@ function DoubanPageClient() {
       }
     }
 
-    // 使用短暂延迟确保状态更新完成后标记选择器准备好
     const timer = setTimeout(() => {
       setSelectorsReady(true);
     }, 50);
@@ -119,13 +179,16 @@ function DoubanPageClient() {
     return () => clearTimeout(timer);
   }, [type, customCategories]);
 
-  // 生成骨架屏数据
   const skeletonData = Array.from({ length: 25 }, (_, index) => index);
+
+  const sortedDoubanData = useMemo(
+    () => sortDoubanItems(doubanData, sortMode),
+    [doubanData, sortMode]
+  );
 
   // 生成API请求参数的辅助函数
   const getRequestParams = useCallback(
     (pageStart: number) => {
-      // 当type为tv或show时，kind统一为'tv'，category使用type本身
       if (type === 'tv' || type === 'show') {
         return {
           kind: 'tv' as const,
@@ -136,7 +199,6 @@ function DoubanPageClient() {
         };
       }
 
-      // 电影类型保持原逻辑
       return {
         kind: type as 'tv' | 'movie',
         category: primarySelection,
@@ -155,7 +217,6 @@ function DoubanPageClient() {
       let data: DoubanResult;
 
       if (type === 'custom') {
-        // 自定义分类模式：根据选中的一级和二级选项获取对应的分类
         const selectedCategory = customCategories.find(
           (cat) =>
             cat.type === primarySelection && cat.query === secondarySelection
@@ -195,28 +256,23 @@ function DoubanPageClient() {
 
   // 只在选择器准备好后才加载数据
   useEffect(() => {
-    // 只有在选择器准备好时才开始加载
     if (!selectorsReady) {
       return;
     }
 
-    // 重置页面状态
     setDoubanData([]);
     setCurrentPage(0);
     setHasMore(true);
     setIsLoadingMore(false);
 
-    // 清除之前的防抖定时器
     if (debounceTimeoutRef.current) {
       clearTimeout(debounceTimeoutRef.current);
     }
 
-    // 使用防抖机制加载数据，避免连续状态更新触发多次请求
     debounceTimeoutRef.current = setTimeout(() => {
       loadInitialData();
-    }, 100); // 100ms 防抖延迟
+    }, 100);
 
-    // 清理函数
     return () => {
       if (debounceTimeoutRef.current) {
         clearTimeout(debounceTimeoutRef.current);
@@ -239,7 +295,6 @@ function DoubanPageClient() {
 
           let data: DoubanResult;
           if (type === 'custom') {
-            // 自定义分类模式：根据选中的一级和二级选项获取对应的分类
             const selectedCategory = customCategories.find(
               (cat) =>
                 cat.type === primarySelection &&
@@ -287,12 +342,10 @@ function DoubanPageClient() {
 
   // 设置滚动监听
   useEffect(() => {
-    // 如果没有更多数据或正在加载，则不设置监听
     if (!hasMore || isLoadingMore || loading) {
       return;
     }
 
-    // 确保 loadingRef 存在
     if (!loadingRef.current) {
       return;
     }
@@ -319,17 +372,14 @@ function DoubanPageClient() {
   // 处理选择器变化
   const handlePrimaryChange = useCallback(
     (value: string) => {
-      // 只有当值真正改变时才设置loading状态
       if (value !== primarySelection) {
         setLoading(true);
 
-        // 如果是自定义分类模式，同时更新一级和二级选择器
         if (type === 'custom' && customCategories.length > 0) {
           const firstCategory = customCategories.find(
             (cat) => cat.type === value
           );
           if (firstCategory) {
-            // 批量更新状态，避免多次触发数据加载
             setPrimarySelection(value);
             setSecondarySelection(firstCategory.query);
           } else {
@@ -345,7 +395,6 @@ function DoubanPageClient() {
 
   const handleSecondaryChange = useCallback(
     (value: string) => {
-      // 只有当值真正改变时才设置loading状态
       if (value !== secondarySelection) {
         setLoading(true);
         setSecondarySelection(value);
@@ -355,7 +404,6 @@ function DoubanPageClient() {
   );
 
   const getPageTitle = () => {
-    // 根据 type 生成标题
     return type === 'movie'
       ? '电影'
       : type === 'tv'
@@ -370,8 +418,7 @@ function DoubanPageClient() {
     if (type) params.set('type', type);
 
     const queryString = params.toString();
-    const activePath = `/douban${queryString ? `?${queryString}` : ''}`;
-    return activePath;
+    return `/douban${queryString ? `?${queryString}` : ''}`;
   };
 
   return (
@@ -379,7 +426,6 @@ function DoubanPageClient() {
       <div className='px-4 sm:px-10 py-4 sm:py-8 overflow-visible'>
         {/* 页面标题和选择器 */}
         <div className='mb-6 sm:mb-8 space-y-4 sm:space-y-6'>
-          {/* 页面标题 */}
           <div>
             <h1 className='text-2xl sm:text-3xl font-bold text-gray-800 mb-1 sm:mb-2 dark:text-gray-200'>
               {getPageTitle()}
@@ -389,7 +435,6 @@ function DoubanPageClient() {
             </p>
           </div>
 
-          {/* 选择器组件 */}
           {type !== 'custom' ? (
             <div className='bg-white/60 dark:bg-gray-800/40 rounded-2xl p-4 sm:p-6 border border-gray-200/30 dark:border-gray-700/30 backdrop-blur-sm'>
               <DoubanSelector
@@ -415,14 +460,44 @@ function DoubanPageClient() {
 
         {/* 内容展示区域 */}
         <div className='max-w-[95%] mx-auto mt-8 overflow-visible'>
+          {!loading && selectorsReady && doubanData.length > 0 && (
+            <div className='mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+              <div className='flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500'>
+                <span className='inline-flex h-1.5 w-1.5 rounded-full bg-green-500/80'></span>
+                已加载 {doubanData.length} 部
+                {hasMore && <span>· 下滑继续加载</span>}
+              </div>
+
+              <div className='grid w-full grid-cols-4 rounded-xl border border-gray-200/70 bg-gray-100/80 p-1 shadow-inner backdrop-blur-sm sm:inline-flex sm:w-auto dark:border-gray-700/80 dark:bg-gray-800/80'>
+                {DOUBAN_SORT_OPTIONS.map((option) => {
+                  const active = sortMode === option.key;
+                  return (
+                    <button
+                      key={option.key}
+                      type='button'
+                      title={option.title}
+                      aria-pressed={active}
+                      onClick={() => setSortMode(option.key)}
+                      className={`whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all duration-200 sm:px-3 sm:text-sm ${
+                        active
+                          ? 'bg-white text-green-600 shadow-sm ring-1 ring-black/[0.03] dark:bg-gray-700 dark:text-green-400 dark:ring-white/[0.04]'
+                          : 'text-gray-500 hover:bg-white/60 hover:text-gray-800 dark:text-gray-400 dark:hover:bg-gray-700/60 dark:hover:text-gray-200'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* 内容网格 */}
           <div className='justify-start grid grid-cols-3 gap-x-2 gap-y-12 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,minmax(160px,1fr))] sm:gap-x-8 sm:gap-y-20'>
             {loading || !selectorsReady
-              ? // 显示骨架屏
-                skeletonData.map((index) => <DoubanCardSkeleton key={index} />)
-              : // 显示实际数据
-                doubanData.map((item, index) => (
-                  <div key={`${item.title}-${index}`} className='w-full'>
+              ? skeletonData.map((index) => <DoubanCardSkeleton key={index} />)
+              : sortedDoubanData.map((item, index) => (
+                  <div key={`${item.id}-${index}`} className='w-full'>
                     <VideoCard
                       from='douban'
                       title={item.title}
@@ -430,7 +505,7 @@ function DoubanPageClient() {
                       douban_id={item.id}
                       rate={item.rate}
                       year={item.year}
-                      type={type === 'movie' ? 'movie' : ''} // 电影类型严格控制，tv 不控
+                      type={type === 'movie' ? 'movie' : ''}
                     />
                   </div>
                 ))}
@@ -451,20 +526,24 @@ function DoubanPageClient() {
               {isLoadingMore && (
                 <div className='flex items-center gap-2'>
                   <div className='animate-spin rounded-full h-6 w-6 border-b-2 border-green-500'></div>
-                  <span className='text-gray-600'>加载中...</span>
+                  <span className='text-gray-600 dark:text-gray-400'>
+                    加载中...
+                  </span>
                 </div>
               )}
             </div>
           )}
 
-          {/* 没有更多数据提示 */}
           {!hasMore && doubanData.length > 0 && (
-            <div className='text-center text-gray-500 py-8'>已加载全部内容</div>
+            <div className='text-center text-gray-500 py-8 dark:text-gray-400'>
+              已加载全部内容
+            </div>
           )}
 
-          {/* 空状态 */}
           {!loading && doubanData.length === 0 && (
-            <div className='text-center text-gray-500 py-8'>暂无相关内容</div>
+            <div className='text-center text-gray-500 py-8 dark:text-gray-400'>
+              暂无相关内容
+            </div>
           )}
         </div>
       </div>

@@ -14,6 +14,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Wait for public service worker deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            status=$(curl -sS -o /dev/null -w '%{http_code}' https://tv.zeptol.qzz.io/sw.js || true)
+            echo "attempt=${attempt} sw_status=${status}"
+            if [ "$status" = "200" ]; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'Service worker never became publicly accessible.' >&2
+          exit 1
+
       - name: Fetch production PWA resources
         shell: bash
         run: |
@@ -21,18 +36,21 @@ jobs:
           mkdir -p /tmp/pwa-check
           cd /tmp/pwa-check
 
-          curl --retry 3 --retry-delay 5 -fsS -D root.headers https://tv.zeptol.qzz.io/ -o index.html
+          curl --retry 3 --retry-delay 5 -sS -D root-initial.headers https://tv.zeptol.qzz.io/ -o root-initial.body
+          curl --retry 3 --retry-delay 5 -fsSL -D root-final.headers https://tv.zeptol.qzz.io/ -o index.html
           curl --retry 3 --retry-delay 5 -fsS -D manifest.headers https://tv.zeptol.qzz.io/manifest.json -o manifest.json
           curl --retry 3 --retry-delay 5 -fsS -D sw.headers https://tv.zeptol.qzz.io/sw.js -o sw.js
 
-          echo '===== ROOT HEADERS ====='
-          cat root.headers
+          echo '===== ROOT INITIAL HEADERS ====='
+          cat root-initial.headers
+          echo '===== ROOT FINAL HEADERS ====='
+          cat root-final.headers
           echo '===== MANIFEST HEADERS ====='
           cat manifest.headers
           echo '===== SERVICE WORKER HEADERS ====='
           cat sw.headers
           echo '===== LINKED MANIFEST ====='
-          grep -Eio '<link[^>]+rel=["'"']manifest["'"'][^>]*>|<link[^>]+href=["'"'][^"'"']*manifest[^"'"']*["'"'][^>]*>' index.html || true
+          grep -i -oE '<link[^>]+manifest[^>]*>' index.html || true
           echo '===== MANIFEST ====='
           jq . manifest.json
           echo '===== SERVICE WORKER SIZE / FETCH ROUTES ====='
@@ -63,7 +81,7 @@ jobs:
         run: |
           set -euxo pipefail
           cd /tmp/pwa-check
-          npx --yes lighthouse@11.7.1 https://tv.zeptol.qzz.io/ \
+          npx --yes lighthouse@11.7.1 https://tv.zeptol.qzz.io/login \
             --only-categories=pwa \
             --chrome-flags='--headless --no-sandbox --disable-dev-shm-usage' \
             --output=json \

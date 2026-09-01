@@ -21,12 +21,14 @@ import VideoCard from '@/components/VideoCard';
 type SearchCategory = 'all' | 'movie' | 'tv' | 'show' | 'anime';
 type ClassifiedSearchCategory = Exclude<SearchCategory, 'all'>;
 type SearchViewMode = 'agg' | 'all';
+type SearchSortMode = 'relevance' | 'rating' | 'yearDesc' | 'yearAsc';
 
 interface CachedSearchState {
   query: string;
   results: SearchResult[];
   selectedCategory: SearchCategory;
   viewMode: SearchViewMode;
+  sortMode: SearchSortMode;
 }
 
 // 只保存在当前页面 JS 运行时内存中：
@@ -43,6 +45,17 @@ const SEARCH_CATEGORY_OPTIONS: Array<{
   { key: 'tv', label: '电视剧' },
   { key: 'show', label: '综艺' },
   { key: 'anime', label: '动漫' },
+];
+
+const SEARCH_SORT_OPTIONS: Array<{
+  key: SearchSortMode;
+  label: string;
+  title: string;
+}> = [
+  { key: 'relevance', label: '综合', title: '按搜索相关度排序' },
+  { key: 'rating', label: '评分', title: '按豆瓣评分从高到低排序' },
+  { key: 'yearDesc', label: '最新', title: '按上映年份从新到旧排序' },
+  { key: 'yearAsc', label: '最早', title: '按上映年份从旧到新排序' },
 ];
 
 function getDefaultAggregate(): boolean {
@@ -73,6 +86,11 @@ function readCachedSearchState(): CachedSearchState | null {
       ? cached.selectedCategory
       : 'all',
     viewMode: cached.viewMode === 'all' ? 'all' : 'agg',
+    sortMode: SEARCH_SORT_OPTIONS.some(
+      (option) => option.key === cached.sortMode
+    )
+      ? cached.sortMode
+      : 'relevance',
   };
 }
 
@@ -80,7 +98,8 @@ function saveCachedSearchState(
   query: string,
   results: SearchResult[],
   selectedCategory: SearchCategory,
-  viewMode: SearchViewMode
+  viewMode: SearchViewMode,
+  sortMode: SearchSortMode
 ) {
   if (typeof window === 'undefined' || !query.trim()) return;
 
@@ -89,6 +108,7 @@ function saveCachedSearchState(
     results,
     selectedCategory,
     viewMode,
+    sortMode,
   } satisfies CachedSearchState;
 }
 
@@ -127,25 +147,96 @@ function classifySearchResult(item: SearchResult): ClassifiedSearchCategory {
   return item.episodes.length > 1 ? 'tv' : 'movie';
 }
 
-function sortSearchResults(results: SearchResult[], query: string) {
-  return results.sort((a, b) => {
-    const normalizedQuery = query.trim();
-    const aExactMatch = a.title === normalizedQuery;
-    const bExactMatch = b.title === normalizedQuery;
+function getYearValue(year?: string): number | null {
+  if (!year || year === 'unknown') return null;
+  const parsed = Number.parseInt(year, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
-    if (aExactMatch && !bExactMatch) return -1;
-    if (!aExactMatch && bExactMatch) return 1;
+function getRatingValue(rate?: string): number | null {
+  if (!rate) return null;
+  const parsed = Number.parseFloat(rate);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
 
-    if (a.year === b.year) {
-      return a.title.localeCompare(b.title);
+function compareYears(a: SearchResult, b: SearchResult, ascending: boolean) {
+  const aYear = getYearValue(a.year);
+  const bYear = getYearValue(b.year);
+
+  if (aYear === null && bYear === null) return 0;
+  if (aYear === null) return 1;
+  if (bYear === null) return -1;
+
+  return ascending ? aYear - bYear : bYear - aYear;
+}
+
+function compareSearchItems(
+  a: SearchResult,
+  b: SearchResult,
+  sortMode: SearchSortMode,
+  query: string
+) {
+  if (sortMode === 'rating') {
+    const aRating = getRatingValue(a.rate);
+    const bRating = getRatingValue(b.rate);
+
+    if (aRating === null && bRating !== null) return 1;
+    if (aRating !== null && bRating === null) return -1;
+    if (aRating !== null && bRating !== null && aRating !== bRating) {
+      return bRating - aRating;
     }
 
-    if (a.year === 'unknown' && b.year === 'unknown') return 0;
-    if (a.year === 'unknown') return 1;
-    if (b.year === 'unknown') return -1;
+    const yearCompare = compareYears(a, b, false);
+    if (yearCompare !== 0) return yearCompare;
+    return a.title.localeCompare(b.title);
+  }
 
-    return parseInt(a.year) > parseInt(b.year) ? -1 : 1;
-  });
+  if (sortMode === 'yearDesc' || sortMode === 'yearAsc') {
+    const yearCompare = compareYears(a, b, sortMode === 'yearAsc');
+    if (yearCompare !== 0) return yearCompare;
+
+    const aRating = getRatingValue(a.rate) || 0;
+    const bRating = getRatingValue(b.rate) || 0;
+    if (aRating !== bRating) return bRating - aRating;
+    return a.title.localeCompare(b.title);
+  }
+
+  const normalizedQuery = query.trim().replaceAll(' ', '');
+  const aTitle = a.title.replaceAll(' ', '');
+  const bTitle = b.title.replaceAll(' ', '');
+  const aExactMatch = aTitle === normalizedQuery;
+  const bExactMatch = bTitle === normalizedQuery;
+  const aIncludesQuery = normalizedQuery ? aTitle.includes(normalizedQuery) : false;
+  const bIncludesQuery = normalizedQuery ? bTitle.includes(normalizedQuery) : false;
+
+  if (aExactMatch && !bExactMatch) return -1;
+  if (!aExactMatch && bExactMatch) return 1;
+  if (aIncludesQuery && !bIncludesQuery) return -1;
+  if (!aIncludesQuery && bIncludesQuery) return 1;
+
+  const yearCompare = compareYears(a, b, false);
+  if (yearCompare !== 0) return yearCompare;
+  return a.title.localeCompare(b.title);
+}
+
+function sortSearchResults(results: SearchResult[], query: string) {
+  return results.sort((a, b) =>
+    compareSearchItems(a, b, 'relevance', query)
+  );
+}
+
+function getAggregateSortItem(group: SearchResult[]): SearchResult {
+  const bestRatedItem = group.reduce<SearchResult | null>((best, item) => {
+    const itemRating = getRatingValue(item.rate);
+    if (itemRating === null) return best;
+    if (!best || itemRating > (getRatingValue(best.rate) || 0)) return item;
+    return best;
+  }, null);
+
+  return {
+    ...group[0],
+    rate: bestRatedItem?.rate || '',
+  };
 }
 
 async function enrichWithDoubanRatings(
@@ -201,6 +292,7 @@ function SearchPageClient() {
   const [viewMode, setViewMode] = useState<SearchViewMode>(() =>
     getDefaultAggregate() ? 'agg' : 'all'
   );
+  const [sortMode, setSortMode] = useState<SearchSortMode>('relevance');
 
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -230,6 +322,14 @@ function SearchPageClient() {
     );
   }, [searchResults, selectedCategory]);
 
+  const sortedSearchResults = useMemo(
+    () =>
+      [...filteredSearchResults].sort((a, b) =>
+        compareSearchItems(a, b, sortMode, searchQuery)
+      ),
+    [filteredSearchResults, searchQuery, sortMode]
+  );
+
   const aggregatedResults = useMemo(() => {
     const map = new Map<string, SearchResult[]>();
 
@@ -242,26 +342,15 @@ function SearchPageClient() {
       map.set(key, arr);
     });
 
-    return Array.from(map.entries()).sort((a, b) => {
-      const query = searchQuery.trim().replaceAll(' ', '');
-      const aExactMatch = a[1][0].title.replaceAll(' ', '').includes(query);
-      const bExactMatch = b[1][0].title.replaceAll(' ', '').includes(query);
-
-      if (aExactMatch && !bExactMatch) return -1;
-      if (!aExactMatch && bExactMatch) return 1;
-
-      if (a[1][0].year === b[1][0].year) {
-        return a[0].localeCompare(b[0]);
-      }
-
-      const aYear = a[1][0].year;
-      const bYear = b[1][0].year;
-      if (aYear === 'unknown' && bYear === 'unknown') return 0;
-      if (aYear === 'unknown') return 1;
-      if (bYear === 'unknown') return -1;
-      return aYear > bYear ? -1 : 1;
-    });
-  }, [filteredSearchResults, searchQuery]);
+    return Array.from(map.entries()).sort((a, b) =>
+      compareSearchItems(
+        getAggregateSortItem(a[1]),
+        getAggregateSortItem(b[1]),
+        sortMode,
+        searchQuery
+      )
+    );
+  }, [filteredSearchResults, searchQuery, sortMode]);
 
   const restoreCachedState = (cached: CachedSearchState) => {
     activeSearchRef.current = cached.query;
@@ -269,6 +358,7 @@ function SearchPageClient() {
     setSearchResults(cached.results);
     setSelectedCategory(cached.selectedCategory);
     setViewMode(cached.viewMode);
+    setSortMode(cached.sortMode);
     setShowResults(true);
     setIsLoading(false);
   };
@@ -339,6 +429,7 @@ function SearchPageClient() {
     setSearchQuery(trimmed);
     setSearchResults([]);
     setSelectedCategory('all');
+    setSortMode('relevance');
     setShowResults(true);
     addSearchHistory(trimmed);
     void fetchSearchResults(trimmed);
@@ -350,6 +441,7 @@ function SearchPageClient() {
     setSearchQuery('');
     setSearchResults([]);
     setSelectedCategory('all');
+    setSortMode('relevance');
     setShowResults(false);
     setIsLoading(false);
 
@@ -416,6 +508,7 @@ function SearchPageClient() {
         setSearchQuery('');
         setSearchResults([]);
         setSelectedCategory('all');
+        setSortMode('relevance');
         setShowResults(false);
         setIsLoading(false);
 
@@ -436,6 +529,7 @@ function SearchPageClient() {
     if (query) {
       setSearchQuery(query);
       setSelectedCategory('all');
+      setSortMode('relevance');
       addSearchHistory(query);
       void fetchSearchResults(query);
       return;
@@ -449,6 +543,7 @@ function SearchPageClient() {
     } else {
       activeSearchRef.current = '';
       setSearchQuery('');
+      setSortMode('relevance');
       setShowResults(false);
       setSearchResults([]);
       document.getElementById('searchInput')?.focus();
@@ -461,9 +556,10 @@ function SearchPageClient() {
       searchQuery,
       searchResults,
       selectedCategory,
-      viewMode
+      viewMode,
+      sortMode
     );
-  }, [searchQuery, searchResults, selectedCategory, viewMode, showResults]);
+  }, [searchQuery, searchResults, selectedCategory, viewMode, sortMode, showResults]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -531,13 +627,37 @@ function SearchPageClient() {
                 })}
               </div>
 
-              <div className='mb-8 flex items-start justify-between gap-4'>
-                <h2 className='pt-1 text-xl font-bold text-gray-800 dark:text-gray-200 whitespace-nowrap'>
-                  搜索结果
-                  <span className='ml-2 text-sm font-normal text-gray-400'>
-                    {filteredSearchResults.length}
-                  </span>
-                </h2>
+              <div className='mb-8 flex items-start justify-between gap-3 sm:gap-4'>
+                <div className='min-w-0 flex-1'>
+                  <h2 className='pt-1 text-xl font-bold text-gray-800 dark:text-gray-200 whitespace-nowrap'>
+                    搜索结果
+                    <span className='ml-2 text-sm font-normal text-gray-400'>
+                      {filteredSearchResults.length}
+                    </span>
+                  </h2>
+
+                  <div className='mt-3 inline-flex max-w-full items-center rounded-xl border border-gray-200/70 bg-gray-100/80 p-1 shadow-inner dark:border-gray-700/80 dark:bg-gray-800/80'>
+                    {SEARCH_SORT_OPTIONS.map((option) => {
+                      const active = sortMode === option.key;
+                      return (
+                        <button
+                          key={option.key}
+                          type='button'
+                          title={option.title}
+                          aria-pressed={active}
+                          onClick={() => setSortMode(option.key)}
+                          className={`whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all duration-200 sm:px-3 sm:text-sm ${
+                            active
+                              ? 'bg-white text-green-600 shadow-sm ring-1 ring-black/[0.03] dark:bg-gray-700 dark:text-green-400 dark:ring-white/[0.04]'
+                              : 'text-gray-500 hover:bg-white/60 hover:text-gray-800 dark:text-gray-400 dark:hover:bg-gray-700/60 dark:hover:text-gray-200'
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
 
                 <div className='flex shrink-0 flex-col items-end gap-2.5'>
                   <button
@@ -571,7 +691,7 @@ function SearchPageClient() {
               </div>
 
               <div
-                key={`search-results-${viewMode}-${selectedCategory}`}
+                key={`search-results-${viewMode}-${selectedCategory}-${sortMode}`}
                 className='justify-start grid grid-cols-3 gap-x-2 gap-y-14 sm:gap-y-20 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,_minmax(11rem,_1fr))] sm:gap-x-8'
               >
                 {viewMode === 'agg'
@@ -589,7 +709,7 @@ function SearchPageClient() {
                         />
                       </div>
                     ))
-                  : filteredSearchResults.map((item) => (
+                  : sortedSearchResults.map((item) => (
                       <div
                         key={`all-${item.source}-${item.id}`}
                         className='w-full'

@@ -33,16 +33,10 @@ const manifestTemplate = {
       "purpose": "any"
     },
     {
-      "src": "/icons/zeptol-512.png",
+      "src": "/icons/zeptol-native-splash-v3.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/icons/zeptol-maskable-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
+      "purpose": "any maskable"
     }
   ]
 };

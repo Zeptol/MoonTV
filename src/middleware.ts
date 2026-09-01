@@ -125,6 +125,11 @@ function shouldSkipAuth(pathname: string): boolean {
     '/icons/',
     '/logo.png',
     '/screenshot.png',
+    // PWA 安装、更新和离线启动所需的文件必须允许匿名读取。
+    '/sw.js',
+    '/workbox-',
+    '/worker-',
+    '/fallback-',
   ];
 
   return skipPaths.some((path) => pathname.startsWith(path));

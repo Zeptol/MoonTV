@@ -91,6 +91,7 @@ export default function VideoCard({
 
     return {
       first: items[0],
+      firstRatedItem: items.find((item) => item.rate),
       mostFrequentDoubanId: getMostFrequent(countMap),
       mostFrequentEpisodes: getMostFrequent(episodeCountMap) || 0,
     };
@@ -105,6 +106,7 @@ export default function VideoCard({
   );
   const actualEpisodes = aggregateData?.mostFrequentEpisodes ?? episodes;
   const actualYear = aggregateData?.first.year ?? year;
+  const actualRate = rate || aggregateData?.firstRatedItem?.rate || '';
   const actualQuery = query || '';
   const actualSearchType = isAggregate
     ? aggregateData?.first.episodes?.length === 1
@@ -252,7 +254,7 @@ export default function VideoCard({
         showHeart: !isAggregate,
         showCheckCircle: false,
         showDoubanLink: !!actualDoubanId,
-        showRating: false,
+        showRating: !!actualRate,
       },
       douban: {
         showSourceName: false,
@@ -261,11 +263,11 @@ export default function VideoCard({
         showHeart: false,
         showCheckCircle: false,
         showDoubanLink: true,
-        showRating: !!rate,
+        showRating: !!actualRate,
       },
     };
     return configs[from] || configs.search;
-  }, [from, isAggregate, actualDoubanId, rate]);
+  }, [from, isAggregate, actualDoubanId, actualRate]);
 
   return (
     <div
@@ -324,15 +326,19 @@ export default function VideoCard({
           </div>
         )}
 
-        {/* 徽章 */}
-        {config.showRating && rate && (
+        {/* 评分徽章 */}
+        {config.showRating && actualRate && (
           <div className='absolute top-2 right-2 bg-pink-500 text-white text-xs font-bold w-7 h-7 rounded-full flex items-center justify-center shadow-md transition-all duration-300 ease-out group-hover:scale-110'>
-            {rate}
+            {actualRate}
           </div>
         )}
 
         {actualEpisodes && actualEpisodes > 1 && (
-          <div className='absolute top-2 right-2 bg-green-500 text-white text-xs font-semibold px-2 py-1 rounded-md shadow-md transition-all duration-300 ease-out group-hover:scale-110'>
+          <div
+            className={`absolute right-2 ${
+              config.showRating && actualRate ? 'top-11' : 'top-2'
+            } bg-green-500 text-white text-xs font-semibold px-2 py-1 rounded-md shadow-md transition-all duration-300 ease-out group-hover:scale-110`}
+          >
             {currentEpisode
               ? `${currentEpisode}/${actualEpisodes}`
               : actualEpisodes}

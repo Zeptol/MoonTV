@@ -19,7 +19,8 @@ const manifestTemplate = {
   "name": siteName,
   "short_name": siteName,
   "description": "影视聚合",
-  "start_url": "/",
+  // 使用无需登录且始终返回 200 的引导页，避免 WebAPK 生成服务访问 / 时被 307 到登录页。
+  "start_url": "/pwa-start.html",
   "scope": "/",
   "display": "standalone",
   "background_color": "#071426",

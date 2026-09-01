@@ -12,7 +12,19 @@ interface ApiSearchItem {
   vod_year?: string;
   vod_content?: string;
   vod_douban_id?: number;
+  vod_douban_score?: string | number;
+  vod_score?: string | number;
   type_name?: string;
+}
+
+function getItemRate(item: ApiSearchItem): string {
+  const rawRate = item.vod_douban_score ?? item.vod_score;
+  if (rawRate === undefined || rawRate === null || rawRate === '') return '';
+
+  const score = Number(rawRate);
+  if (!Number.isFinite(score) || score <= 0 || score > 10) return '';
+
+  return score.toFixed(1);
 }
 
 export async function searchFromApi(
@@ -87,6 +99,7 @@ export async function searchFromApi(
         desc: cleanHtmlTags(item.vod_content || ''),
         type_name: item.type_name,
         douban_id: item.vod_douban_id,
+        rate: getItemRate(item),
       };
     });
 
@@ -160,6 +173,7 @@ export async function searchFromApi(
                 desc: cleanHtmlTags(item.vod_content || ''),
                 type_name: item.type_name,
                 douban_id: item.vod_douban_id,
+                rate: getItemRate(item),
               };
             });
           } catch (error) {
@@ -225,7 +239,7 @@ export async function getDetailFromApi(
     throw new Error('获取到的详情内容无效');
   }
 
-  const videoDetail = data.list[0];
+  const videoDetail = data.list[0] as ApiSearchItem;
   let episodes: string[] = [];
 
   // 处理播放源拆分
@@ -263,9 +277,10 @@ export async function getDetailFromApi(
     year: videoDetail.vod_year
       ? videoDetail.vod_year.match(/\d{4}/)?.[0] || ''
       : 'unknown',
-    desc: cleanHtmlTags(videoDetail.vod_content),
+    desc: cleanHtmlTags(videoDetail.vod_content || ''),
     type_name: videoDetail.type_name,
     douban_id: videoDetail.vod_douban_id,
+    rate: getItemRate(videoDetail),
   };
 }
 
@@ -340,5 +355,6 @@ async function handleSpecialSourceDetail(
     desc: descText,
     type_name: '',
     douban_id: 0,
+    rate: '',
   };
 }

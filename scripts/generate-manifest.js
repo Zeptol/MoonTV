@@ -15,6 +15,7 @@ const siteName = process.env.SITE_NAME || 'MoonTV';
 
 // manifest.json 模板
 const manifestTemplate = {
+  "id": "/",
   "name": siteName,
   "short_name": siteName,
   "description": "影视聚合",
@@ -23,6 +24,7 @@ const manifestTemplate = {
   "display": "standalone",
   "background_color": "#071426",
   "theme_color": "#071426",
+  "prefer_related_applications": false,
   "apple-mobile-web-app-capable": "yes",
   "apple-mobile-web-app-status-bar-style": "black-translucent",
   "icons": [
@@ -33,10 +35,16 @@ const manifestTemplate = {
       "purpose": "any"
     },
     {
+      "src": "/icons/zeptol-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
       "src": "/icons/zeptol-native-splash-v3.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "maskable"
     }
   ]
 };

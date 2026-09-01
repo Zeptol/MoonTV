@@ -531,40 +531,43 @@ function SearchPageClient() {
                 })}
               </div>
 
-              <div className='mb-8 flex items-center justify-between gap-4'>
-                <div className='flex items-center gap-3 min-w-0'>
-                  <h2 className='text-xl font-bold text-gray-800 dark:text-gray-200 whitespace-nowrap'>
-                    搜索结果
-                    <span className='ml-2 text-sm font-normal text-gray-400'>
-                      {filteredSearchResults.length}
-                    </span>
-                  </h2>
+              <div className='mb-8 flex items-start justify-between gap-4'>
+                <h2 className='pt-1 text-xl font-bold text-gray-800 dark:text-gray-200 whitespace-nowrap'>
+                  搜索结果
+                  <span className='ml-2 text-sm font-normal text-gray-400'>
+                    {filteredSearchResults.length}
+                  </span>
+                </h2>
+
+                <div className='flex shrink-0 flex-col items-end gap-2.5'>
                   <button
                     type='button'
                     onClick={clearCurrentSearch}
-                    className='text-sm text-gray-500 hover:text-red-500 transition-colors dark:text-gray-400 dark:hover:text-red-400 whitespace-nowrap'
+                    className='inline-flex items-center gap-1.5 rounded-lg border border-red-200/80 bg-red-50/80 px-3 py-1.5 text-sm font-medium text-red-500 shadow-sm transition-all hover:border-red-300 hover:bg-red-100 hover:text-red-600 active:scale-95 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-400 dark:hover:border-red-800 dark:hover:bg-red-950/50'
+                    aria-label='清空当前搜索结果'
                   >
-                    清空
+                    <X className='h-3.5 w-3.5' />
+                    清空结果
                   </button>
-                </div>
 
-                <label className='flex items-center gap-2 cursor-pointer select-none shrink-0'>
-                  <span className='text-sm text-gray-700 dark:text-gray-300'>
-                    聚合
-                  </span>
-                  <div className='relative'>
-                    <input
-                      type='checkbox'
-                      className='sr-only peer'
-                      checked={viewMode === 'agg'}
-                      onChange={() =>
-                        setViewMode(viewMode === 'agg' ? 'all' : 'agg')
-                      }
-                    />
-                    <div className='w-9 h-5 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
-                    <div className='absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-4'></div>
-                  </div>
-                </label>
+                  <label className='flex items-center gap-2 cursor-pointer select-none'>
+                    <span className='text-sm text-gray-700 dark:text-gray-300'>
+                      聚合
+                    </span>
+                    <div className='relative'>
+                      <input
+                        type='checkbox'
+                        className='sr-only peer'
+                        checked={viewMode === 'agg'}
+                        onChange={() =>
+                          setViewMode(viewMode === 'agg' ? 'all' : 'agg')
+                        }
+                      />
+                      <div className='w-9 h-5 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
+                      <div className='absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-4'></div>
+                    </div>
+                  </label>
+                </div>
               </div>
 
               <div

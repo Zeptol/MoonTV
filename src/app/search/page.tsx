@@ -18,6 +18,51 @@ import { yellowWords } from '@/lib/yellow';
 import PageLayout from '@/components/PageLayout';
 import VideoCard from '@/components/VideoCard';
 
+type SearchCategory = 'all' | 'movie' | 'tv' | 'show' | 'anime';
+type ClassifiedSearchCategory = Exclude<SearchCategory, 'all'>;
+
+const SEARCH_CATEGORY_OPTIONS: Array<{
+  key: SearchCategory;
+  label: string;
+}> = [
+  { key: 'all', label: '全部' },
+  { key: 'movie', label: '电影' },
+  { key: 'tv', label: '电视剧' },
+  { key: 'show', label: '综艺' },
+  { key: 'anime', label: '动漫' },
+];
+
+function classifySearchResult(item: SearchResult): ClassifiedSearchCategory {
+  const typeText = `${item.type_name || ''} ${item.class || ''}`;
+
+  if (/综艺|真人秀|晚会|脱口秀|选秀|音乐节目|综艺节目/.test(typeText)) {
+    return 'show';
+  }
+
+  if (/动漫|动画|番剧|卡通|国漫|日漫|漫改/.test(typeText)) {
+    return 'anime';
+  }
+
+  if (
+    /电影|影片|动作片|喜剧片|爱情片|科幻片|恐怖片|剧情片|战争片|悬疑片|犯罪片|纪录片/.test(
+      typeText
+    )
+  ) {
+    return 'movie';
+  }
+
+  if (
+    /电视剧|连续剧|国产剧|大陆剧|港剧|港台剧|台剧|韩剧|日剧|美剧|欧美剧|泰剧|海外剧|短剧|剧集/.test(
+      typeText
+    )
+  ) {
+    return 'tv';
+  }
+
+  // 部分资源站不返回明确分类，用集数兜底。
+  return item.episodes.length > 1 ? 'tv' : 'movie';
+}
+
 function SearchPageClient() {
   // 搜索历史
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
@@ -30,6 +75,8 @@ function SearchPageClient() {
   const [isLoading, setIsLoading] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [selectedCategory, setSelectedCategory] =
+    useState<SearchCategory>('all');
 
   // 获取默认聚合设置：只读取用户本地设置，默认为 true
   const getDefaultAggregate = () => {
@@ -46,10 +93,33 @@ function SearchPageClient() {
     return getDefaultAggregate() ? 'agg' : 'all';
   });
 
+  const categoryCounts = useMemo(() => {
+    const counts: Record<SearchCategory, number> = {
+      all: searchResults.length,
+      movie: 0,
+      tv: 0,
+      show: 0,
+      anime: 0,
+    };
+
+    searchResults.forEach((item) => {
+      counts[classifySearchResult(item)] += 1;
+    });
+
+    return counts;
+  }, [searchResults]);
+
+  const filteredSearchResults = useMemo(() => {
+    if (selectedCategory === 'all') return searchResults;
+    return searchResults.filter(
+      (item) => classifySearchResult(item) === selectedCategory
+    );
+  }, [searchResults, selectedCategory]);
+
   // 聚合后的结果（按标题和年份分组）
   const aggregatedResults = useMemo(() => {
     const map = new Map<string, SearchResult[]>();
-    searchResults.forEach((item) => {
+    filteredSearchResults.forEach((item) => {
       // 使用 title + year + type 作为键，year 必然存在，但依然兜底 'unknown'
       const key = `${item.title.replaceAll(' ', '')}-${
         item.year || 'unknown'
@@ -90,7 +160,7 @@ function SearchPageClient() {
         }
       }
     });
-  }, [searchResults]);
+  }, [filteredSearchResults, searchQuery]);
 
   useEffect(() => {
     // 无搜索参数时聚焦搜索框
@@ -271,10 +341,41 @@ function SearchPageClient() {
             </div>
           ) : showResults ? (
             <section className='mb-12'>
+              {/* 分类筛选 */}
+              <div className='mb-6 flex flex-wrap items-center gap-2'>
+                {SEARCH_CATEGORY_OPTIONS.map((category) => {
+                  const active = selectedCategory === category.key;
+                  return (
+                    <button
+                      key={category.key}
+                      type='button'
+                      onClick={() => setSelectedCategory(category.key)}
+                      className={`px-3.5 py-1.5 rounded-full text-sm border transition-all ${
+                        active
+                          ? 'bg-green-500 border-green-500 text-white shadow-sm'
+                          : 'bg-white/70 border-gray-200 text-gray-600 hover:border-green-400 hover:text-green-600 dark:bg-gray-800/70 dark:border-gray-700 dark:text-gray-300 dark:hover:border-green-500 dark:hover:text-green-400'
+                      }`}
+                    >
+                      {category.label}
+                      <span
+                        className={`ml-1.5 text-xs ${
+                          active ? 'text-white/80' : 'text-gray-400'
+                        }`}
+                      >
+                        {categoryCounts[category.key]}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
               {/* 标题 + 聚合开关 */}
               <div className='mb-8 flex items-center justify-between'>
                 <h2 className='text-xl font-bold text-gray-800 dark:text-gray-200'>
                   搜索结果
+                  <span className='ml-2 text-sm font-normal text-gray-400'>
+                    {filteredSearchResults.length}
+                  </span>
                 </h2>
                 {/* 聚合开关 */}
                 <label className='flex items-center gap-2 cursor-pointer select-none'>
@@ -296,7 +397,7 @@ function SearchPageClient() {
                 </label>
               </div>
               <div
-                key={`search-results-${viewMode}`}
+                key={`search-results-${viewMode}-${selectedCategory}`}
                 className='justify-start grid grid-cols-3 gap-x-2 gap-y-14 sm:gap-y-20 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,_minmax(11rem,_1fr))] sm:gap-x-8'
               >
                 {viewMode === 'agg'
@@ -306,6 +407,7 @@ function SearchPageClient() {
                           <VideoCard
                             from='search'
                             items={group}
+                            rate={group.find((item) => item.rate)?.rate || ''}
                             query={
                               searchQuery.trim() !== group[0].title
                                 ? searchQuery.trim()
@@ -315,7 +417,7 @@ function SearchPageClient() {
                         </div>
                       );
                     })
-                  : searchResults.map((item) => (
+                  : filteredSearchResults.map((item) => (
                       <div
                         key={`all-${item.source}-${item.id}`}
                         className='w-full'
@@ -328,6 +430,7 @@ function SearchPageClient() {
                           source={item.source}
                           source_name={item.source_name}
                           douban_id={item.douban_id?.toString()}
+                          rate={item.rate}
                           query={
                             searchQuery.trim() !== item.title
                               ? searchQuery.trim()
@@ -339,9 +442,9 @@ function SearchPageClient() {
                         />
                       </div>
                     ))}
-                {searchResults.length === 0 && (
+                {filteredSearchResults.length === 0 && (
                   <div className='col-span-full text-center text-gray-500 py-8 dark:text-gray-400'>
-                    未找到相关结果
+                    当前分类未找到相关结果
                   </div>
                 )}
               </div>

@@ -31,6 +31,11 @@ export async function generateMetadata(): Promise<Metadata> {
     title: siteName,
     description: '影视聚合',
     manifest: '/manifest.json',
+    icons: {
+      icon: '/icons/icon-192x192.png?v=moon-20260902-2',
+      shortcut: '/icons/icon-192x192.png?v=moon-20260902-2',
+      apple: '/icons/icon-192x192.png?v=moon-20260902-2',
+    },
   };
 }
 

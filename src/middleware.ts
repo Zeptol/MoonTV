@@ -122,7 +122,6 @@ function shouldSkipAuth(pathname: string): boolean {
     '/favicon.ico',
     '/robots.txt',
     '/manifest.json',
-    '/pwa-start.html',
     '/icons/',
     '/logo.png',
     '/screenshot.png',
@@ -140,6 +139,6 @@ function shouldSkipAuth(pathname: string): boolean {
 // PWA 资源不仅在函数中跳过，这里也彻底排除，避免安装器拿到登录重定向。
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|robots.txt|manifest.json|pwa-start|sw.js|workbox-|worker-|fallback-|icons/|logo.png|screenshot|login|warning|api/login|api/register|api/logout|api/cron|api/server-config).*)',
+    '/((?!_next/static|_next/image|favicon.ico|robots.txt|manifest.json|sw.js|workbox-|worker-|fallback-|icons/|logo.png|screenshot|login|warning|api/login|api/register|api/logout|api/cron|api/server-config).*)',
   ],
 };

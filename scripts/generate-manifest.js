@@ -15,37 +15,35 @@ const siteName = process.env.SITE_NAME || 'MoonTV';
 
 // manifest.json 模板
 const manifestTemplate = {
-  "id": "/",
   "name": siteName,
   "short_name": siteName,
   "description": "影视聚合",
-  // 使用无需登录且始终返回 200 的引导页，避免 WebAPK 生成服务访问 / 时被 307 到登录页。
-  "start_url": "/pwa-start.html",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#071426",
-  "theme_color": "#071426",
-  "prefer_related_applications": false,
+  "background_color": "#000000",
   "apple-mobile-web-app-capable": "yes",
-  "apple-mobile-web-app-status-bar-style": "black-translucent",
+  "apple-mobile-web-app-status-bar-style": "black",
   "icons": [
     {
-      "src": "/icons/zeptol-192.png",
+      "src": "/icons/icon-192x192.png",
       "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any"
+      "type": "image/png"
     },
     {
-      "src": "/icons/zeptol-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
+      "src": "/icons/icon-256x256.png",
+      "sizes": "256x256",
+      "type": "image/png"
     },
     {
-      "src": "/icons/zeptol-native-splash-v3.png",
+      "src": "/icons/icon-384x384.png",
+      "sizes": "384x384",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
       "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
+      "type": "image/png"
     }
   ]
 };
